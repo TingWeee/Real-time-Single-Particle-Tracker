@@ -51,7 +51,6 @@ public class TwoDGaussianPlugin {
     
     //method to do rough localisation on frame-> gives an array of location of particles
     //referenced from Binary Spot detector used in TrackMate
-    
     class Particle{
         public double[] positionArr;//[frameNum, positionX, positionY]
         public int index;//each particle object is labelled 1,2,3,4 etc
@@ -63,45 +62,42 @@ public class TwoDGaussianPlugin {
     public static class SPT {
 
         public SPT() {}
-        
-
         private static doTwoFit x;
-      
-        
+ 
         //raw data
 
         private static Roi roi2;
-        private static int ROI_width = 18;
-        private static int ROI_height = 18;
-        //int radius = 200;//nm sqrt MSD, assuming D=0.4um^2/s, t = 20ms, radius = Math.sqrt(4*D*T);
-        private static int shiftR = 3; //200/110 theen i just round up will include some formulas next time 
-        private static int frameno_ = 1; // fitting frame no 1 by default
+        private static int ROI_width = 8; //adjust ROI_width and heigh to fit size of particle
+        private static int ROI_height = 8;
+        private static int shiftR = 3; 
+        private static int frameno_ = 1;
         private static double SPTresultarray[][] = new double[totalFrame_][2];
 
         private static boolean iterate = false;
         int incrementX = 0;//if increment not zero, go to while loop and set newStart_2[1] =0
         int incrementY = 0;//if increment not zero, go to while loop and set newStart_2[2] =0
 
-        private static double[] data_; //flattened 2d array 
-        private static double[] newStart_ = { //set initial parameters
-            4,//amplitude arbitrary, roughly //
+        private static double[] data_; //flattened 2d array
+        //set initial parameters
+        private static double[] newStart_ = {
+            14000,//amplitude arbitrary//
             1,
             1,
             1,//depends on camera pixel size and magnification
             1,
-            1 // find average of all cnts in one frame
+            2000 // find average of all cnts in one frame
         };
 
-        private static double[] optimalValues_1 = new double[6]; //FOR??? why is it its own class
-        private static int[] optim_param_;//for fiitting, dont need know
+        private static double[] optimalValues_1 = new double[6];
+        private static int[] optim_param_;//for fitting
         private static int data_width_;//assuming its a sqaure region, width of square in pixel
 
-        //blackbox that does all the fitting
+        //blackbox that performs the fitting
         //private static double SPTresultarray[][] = new double[totalFrame_][2];
-
         //Main Method
         public static void StartTrack() throws IOException {
-
+           newStart_[1] = ROI_width / 2;
+           newStart_[2] = ROI_width / 2;
             //for display
             GenericDialog gd = new GenericDialog("Fitting 1 frame");
             gd.addMessage("Set Initial fit parameter");
@@ -117,7 +113,6 @@ public class TwoDGaussianPlugin {
             gd.showDialog();
 
             if (gd.wasOKed()) {
-                IJ.log("3 loaded totalframe; " + totalFrame_);
                 // Set initial fit parameters
                 newStart_[0] = (double) gd.getNextNumber();
                 newStart_[1] = (double) gd.getNextNumber();
@@ -127,35 +122,42 @@ public class TwoDGaussianPlugin {
                 newStart_[5] = (double) gd.getNextNumber();
 
                 frameno_ = (int) gd.getNextNumber();
-                //totalFrame_=totalFrame_-frameno_+1;
-
                 printlog("frame no: " + frameno_);
-                //does fitting for first frame inputed
-                newStart_[1] = ROI_width / 2;
-                newStart_[2] = ROI_height / 2;
-                IJ.log("4 loaded totalframe; " + totalFrame_);
-                FitMeDialogue(frameno_, roi2);
-                IJ.log("5 loaded totalframe; " + totalFrame_);
                 IJ.log("totalFrame: " + totalFrame_);
-                for (int framNum =frameno_+1; framNum <=totalFrame_; framNum++){
+                IJ.log("--------START");
+                boolean ffok = FitMeDialogue(frameno_, roi2);
+                if (!ffok && iterate) {
+                    boolean foundMatch = false;
+                    int[][] combination = WayOfIteration(ROI_width, ROI_height);
+                    for (int[] x : combination) {
+                        newStart_[1] = x[0];
+                        newStart_[2] = x[1];
+                        if (FitMeDialogue(frameno_, roi2)) {
+                            foundMatch = true;
+                            break;
+                        }
+                    }
+                }
+
+                IJ.log("--------END");
+               
+               for (int framNum =frameno_+1; framNum <=totalFrame_; framNum++){
                     Integer[] newres;
                     for (int i=0; i<=4; i++){
-
                         newStart_[1]= ROI_width/2;
                         newStart_[2]=ROI_height/2;
                         if(i==0){
                             //uses meanX and meanY of previous frame to reposition the ROI
-                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], 0, 0);
+                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], 0, 0,ROI_width, ROI_height);
                             printlog("newres[0]: " + newres[0] + " newres[1]: " + newres[1]);
                             roi2.setLocation(newres[0], newres[1]);
                             printlog("roi x: " + roi2.getBounds().getX() + ", roi y: " + roi2.getBounds().getY() + ", roi w: " + roi2.getBounds().getWidth() + ", roi h: " + roi2.getBounds().getHeight());
 
                             if(FitMeDialogue(framNum,roi2))
                                 break;
-
                             else if (iterate){
                                 boolean foundMatch = false;
-                                int[][] combination = WayOfIteration();
+                                int[][] combination = WayOfIteration(ROI_width, ROI_height);
                                 for (int[] x:combination){
                                     newStart_[1]=x[0];
                                     newStart_[2]=x[1];
@@ -167,7 +169,7 @@ public class TwoDGaussianPlugin {
                                     break;
                             }
                         }else if(i==1){
-                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], shiftR, 0);
+                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], shiftR, 0, ROI_width, ROI_height);
                             printlog("newres[0]: " + newres[0] + " newres[1]: " + newres[1]);
                             roi2.setLocation(newres[0], newres[1]);
                             printlog("roi x: " + roi2.getBounds().getX() + ", roi y: " + roi2.getBounds().getY() + ", roi w: " + roi2.getBounds().getWidth() + ", roi h: " + roi2.getBounds().getHeight());
@@ -176,10 +178,11 @@ public class TwoDGaussianPlugin {
                                 break;
                             else if (iterate){
                                 boolean foundMatch = false;
-                                int[][] combination = WayOfIteration();
+                                int[][] combination = WayOfIteration(ROI_width, ROI_height);
                                 for (int[] x:combination){
-                                    newStart_[1]=x[0];newStart_[2]=x[1];
-                                    if(FitMeDialogue(framNum,roi2))
+                                   newStart_[1]=x[0];
+                                   newStart_[2]=x[1];
+                                   if(FitMeDialogue(framNum,roi2))
                                         foundMatch=true;
                                         break;
                                 }
@@ -188,7 +191,7 @@ public class TwoDGaussianPlugin {
                             }
 
                         }else if(i==2){
-                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], -1*shiftR, 0);
+                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], -1*shiftR, 0,  ROI_width, ROI_height);
                             printlog("newres[0]: " + newres[0] + " newres[1]: " + newres[1]);
                             roi2.setLocation(newres[0], newres[1]);
                             printlog("roi x: " + roi2.getBounds().getX() + ", roi y: " + roi2.getBounds().getY() + ", roi w: " + roi2.getBounds().getWidth() + ", roi h: " + roi2.getBounds().getHeight());
@@ -196,7 +199,7 @@ public class TwoDGaussianPlugin {
                                 break;
                             else if (iterate){
                                 boolean foundMatch = false;
-                                int[][] combination = WayOfIteration();
+                                int[][] combination = WayOfIteration( ROI_width, ROI_height);
                                 for (int[] x:combination){
                                     newStart_[1]=x[0];newStart_[2]=x[1];
                                     if(FitMeDialogue(framNum,roi2))
@@ -208,7 +211,7 @@ public class TwoDGaussianPlugin {
                             }
 
                         }else if(i==3){
-                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], 0, shiftR);
+                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], 0, shiftR,  ROI_width, ROI_height);
                             printlog("newres[0]: " + newres[0] + " newres[1]: " + newres[1]);
                             roi2.setLocation(newres[0], newres[1]);
                             printlog("roi x: " + roi2.getBounds().getX() + ", roi y: " + roi2.getBounds().getY() + ", roi w: " + roi2.getBounds().getWidth() + ", roi h: " + roi2.getBounds().getHeight());
@@ -216,7 +219,7 @@ public class TwoDGaussianPlugin {
                                 break;
                             else if (iterate){
                                 boolean foundMatch = false;
-                                int[][] combination = WayOfIteration();
+                                int[][] combination = WayOfIteration(ROI_width, ROI_height);
                                 for (int[] x:combination){
                                     newStart_[1]=x[0];newStart_[2]=x[1];
                                     if(FitMeDialogue(framNum,roi2))
@@ -227,7 +230,7 @@ public class TwoDGaussianPlugin {
                                     break;
                             }
                         }else{
-                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], 0, -1*shiftR);
+                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], 0, -1*shiftR, ROI_width, ROI_height);
                             printlog("newres[0]: " + newres[0] + " newres[1]: " + newres[1]);
                             roi2.setLocation(newres[0], newres[1]);
                             printlog("roi x: " + roi2.getBounds().getX() + ", roi y: " + roi2.getBounds().getY() + ", roi w: " + roi2.getBounds().getWidth() + ", roi h: " + roi2.getBounds().getHeight());
@@ -235,7 +238,7 @@ public class TwoDGaussianPlugin {
                                 break;
                             else if (iterate){
                                 boolean foundMatch = false;
-                                int[][] combination = WayOfIteration();
+                                int[][] combination = WayOfIteration( ROI_width, ROI_height);
                                 for (int[] x:combination){
                                     newStart_[1]=x[0];newStart_[2]=x[1];
                                     if(FitMeDialogue(framNum,roi2))
@@ -245,7 +248,30 @@ public class TwoDGaussianPlugin {
                                 if (foundMatch)
                                     break;
                             }
-
+                        } else {
+                            IJ.log("inside frameNum: " + framNum + ", i: " + i);
+                            newres = getNewRoiPosition(optimalValues_1[1], optimalValues_1[2], 0, -1 * shiftR, ROI_width, ROI_height);
+                            printlog("newres[0]: " + newres[0] + " newres[1]: " + newres[1]);
+                            roi2.setLocation(newres[0], newres[1]);
+                            printlog("roi x: " + roi2.getBounds().getX() + ", roi y: " + roi2.getBounds().getY() + ", roi w: " + roi2.getBounds().getWidth() + ", roi h: " + roi2.getBounds().getHeight());
+                            if (FitMeDialogue(framNum, roi2)) {
+                                break;
+                            } else if (iterate) {
+                                boolean foundMatch = false;
+                                int[][] combination = WayOfIteration(ROI_width, ROI_height);
+                                for (int[] x : combination) {
+                                    newStart_[1] = x[0];
+                                    newStart_[2] = x[1];
+                                    IJ.log("inside iterate frameNUM: " + framNum + ", newStart[1]: " + newStart_[1] + ", newStart[2]: " + newStart_[2]);
+                                    if (FitMeDialogue(framNum, roi2)) {
+                                        foundMatch = true;
+                                        break;
+                                    }
+                                }
+                                if (foundMatch) {
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -256,36 +282,32 @@ public class TwoDGaussianPlugin {
                 System.out.println("frame:" + t + " " + Arrays.toString(q));
             }
             writeFile();
-
         }
 
+      
         //Methods
-        private static int[][] WayOfIteration() {
+        private static int[][] WayOfIteration(int boxWidth, int boxHeight) {
             int[][] combination = new int[4][2];
-            combination[0][0] = ROI_width / 4;
-            combination[0][1] = ROI_height / 4;
-            combination[1][0] = -1 * ROI_width / 4;
-            combination[1][1] = -1 * ROI_height / 4;
-            combination[2][0] = ROI_width / 4;
-            combination[2][1] = -1 * ROI_height / 4;
-            combination[3][0] = -1 * ROI_width / 4;
-            combination[3][1] = ROI_height / 4;
+            combination[0][0] = (int) Math.floor(boxWidth * 0.25);
+            combination[0][1] = (int) Math.floor(boxHeight * 0.25);
+            combination[1][0] = (int) Math.floor(boxWidth * 0.75);
+            combination[1][1] = (int) Math.floor(boxHeight * 0.25);
+            combination[2][0] = (int) Math.floor(boxWidth * 0.75);
+            combination[2][1] = (int) Math.floor(boxHeight * 0.75);
+            combination[3][0] = (int) Math.floor(boxWidth * 0.25);
+            combination[3][1] = (int) Math.floor(boxHeight * 0.75);
             return combination;
         }
 
-        private static boolean FitMeDialogue(int framNum, Roi roi2) {// s forloop inside fitmeidalogue
-            
+        private static boolean FitMeDialogue(int framNum, Roi roi2) {
             data_ = get1Darray(imp_, framNum, roi2);
             data_width_ = ROI_width;
             printlog("Init Amplitude: " + newStart_[0] + ", Init MeanX: " + newStart_[1] + ", Init MeanY: " + newStart_[2] + ", Init SigmaX: " + newStart_[3] + ", Init SigmaY: " + newStart_[4] + ", Init Offset: " + newStart_[5]);
-            //Init MeanX and Init Mean Y always prints 5.0
-            //roiwidth and heigh = around 10
             printlog("fitting frame no: " + framNum);
             x = new doTwoFit(data_, newStart_, data_width_, new int[]{1000, 100});
-
+           
             try {//do LevenbergMarquardt optimization and get optimized parameters
-                //do LevenbergMarquardt optimization and get optimized parameters
-                LeastSquaresOptimizer.Optimum opt = x.fit2dGauss(); //result store here
+                LeastSquaresOptimizer.Optimum opt = x.fit2dGauss();
 
                 final double[] optimalValues = opt.getPoint().toArray();//opt after fitting is done 
                 printlog("optimalalues[1]: " + optimalValues[1]);
@@ -300,13 +322,17 @@ public class TwoDGaussianPlugin {
                 //fill textfield UI
                 tfAmplitude.setText(Double.toString(optimalValues[0]));
                 tfMeanX.setText(Double.toString(optimalValues[1]));
-                SPT.SPTresultarray[framNum - 1][0] = optimalValues[1];//changesmade
                 tfMeanY.setText(Double.toString(optimalValues[2]));
-                SPT.SPTresultarray[framNum - 1][1] = optimalValues[2];//changesmade
                 tfSigmaX.setText(Double.toString(optimalValues[3]));
                 tfSigmaY.setText(Double.toString(optimalValues[4]));
                 tfOffset.setText(Double.toString(optimalValues[5]));
                 optimalValues_1 = optimalValues;
+                SPT.SPTresultarray[framNum - 1][0] = optimalValues[1];//mean X
+                SPT.SPTresultarray[framNum - 1][1] = optimalValues[2];//mean Y
+                SPT.SPTresultarray[framNum - 1][2] = optimalValues[3];//sd X
+                SPT.SPTresultarray[framNum - 1][3] = optimalValues[4];//sd Y
+                SPT.SPTresultarray[framNum - 1][4] = optimalValues[0];//Aeff
+                SPT.SPTresultarray[framNum - 1][5] = optimalValues[5];//Offset
                 printlog("optimalalues_1[1]: " + optimalValues_1[1]);
                 printlog("optimalalues_1[2]: " + optimalValues_1[2]);
 
@@ -350,20 +376,16 @@ public class TwoDGaussianPlugin {
                     res[x + (y * w_disp)] = imp.getStack().getProcessor(f).get(x + l_disp, y + t_disp);
                 }
             }
-            printlog("2inside get1Darray framindex: " + frameindex + ", roix: " + roi.getBounds().getX() + ", roiy: " + roi.getBounds().getY() + ", roiwidth: " + roi.getBounds().getWidth() + ", roiheight: " + roi.getBounds().getHeight());
-            //int w = imp.getWidth();
             return res;//1D ARRAY
         }
 
-        private static Integer[] getNewRoiPosition(double fittedX, double fittedY, int shiftx, int shifty) {
+         public static Integer[] getNewRoiPosition(double fittedX, double fittedY, int shiftx, int shifty, int boxWidth, int boxHeight) {
             // index start 0 fittedX,fittedY
             //index start 1 initW, initH
+            IJ.log("inside getNewRoiPosition fittexX: " + fittedX + ", fittedY: " + fittedY + ", shiftx: " + shiftx + ", shifty: " + shifty);
             Integer[] result = new Integer[2];
-            int initH = ROI_height;
-            int initW = ROI_width;
-
-            int new_left = (int) (Math.round(fittedX - (initW / 2) + shiftx));
-            int new_top = (int) (Math.round(fittedY - (initH / 2) + shifty));
+            int new_left = (int) (Math.round(fittedX - (boxWidth / 2) + shiftx));
+            int new_top = (int) (Math.round(fittedY - (boxHeight / 2) + shifty));
 
             if (new_left < 0) {
                 new_left = 0;
@@ -372,33 +394,46 @@ public class TwoDGaussianPlugin {
             if (new_top < 0) {
                 new_top = 0;
             }
+
+            if ((new_left + boxWidth  - 1) > (imp_.getWidth() - 1)) {
+                new_left = imp_.getWidth() - boxWidth ;
+            }
+
+            if ((new_top + boxHeight - 1) > (imp_.getHeight() - 1)) {
+                new_top = imp_.getHeight() - boxHeight;
+            }
             result[0] = new_left;
             result[1] = new_top;
 
+            IJ.log("getNewRoiPosition l: " + result[0] + ", t: " + result[1]);
             return result;
         }
-
         public static void initializeroi(int initposx, int initposy) {
-            roi2 = new Roi(initposx-ROI_width/2,initposy-ROI_height/2, ROI_width, ROI_height);
+            IJ.log("initposx: " + initposx + ", initposy: " + initposy);
+            int tempX = 0;
+            int tempY = 0;
+            if ((initposx - ROI_width / 2) >= 0) {
+                tempX = initposx - ROI_width / 2;
+            }
+            if ((initposy - ROI_height / 2) >= 0) {
+                tempY = initposy - ROI_height / 2;
+            }
+            roi2 = new Roi(tempX, tempY, ROI_width, ROI_height);
             imp_.setRoi(roi2);
         }
 
     }
-    //end of SPT class
+    //End of SPT class
 
     public static class doTwoFit {
-        
- 
         public doTwoFit(double[] data, double[] newStart, int data_width, int[] optim_param) { //takes 4 arg and stores in global variables
-            SPT.data_ = data;//this.data = data;
+            SPT.data_ = data;
             SPT.newStart_ = newStart;
             SPT.data_width_ = data_width;
             SPT.optim_param_ = optim_param;
-            buildlsb();//the one that does the fitting
+            buildlsb();//Performs fitting
         }
         
-        
-
         /**
          * build LeastSquareProblem by using constructor data
          */
@@ -526,7 +561,6 @@ public class TwoDGaussianPlugin {
     ActionListener btnFitmePressed1 = new ActionListener() {
         @Override
         public void actionPerformed(ActionEvent arg0) {
-            IJ.log("2 loaded totalframe; " + totalFrame_);
             try {
                 SPT.StartTrack();
             } catch (IOException ex) {
@@ -537,13 +571,8 @@ public class TwoDGaussianPlugin {
     ActionListener btnFitmePressed2 = new ActionListener() {
         @Override
         public void actionPerformed(ActionEvent arg0) {
-            IJ.log("pass1");
-//            SpotDectector fml = new SpotDectector(imp_);
             fml = new SpotDectector(imp_);
-            IJ.log("pass2");
-            fml.loopParticles();
-            
-           
+            fml.loopParticles();   
         }
     };
     
@@ -556,7 +585,6 @@ public class TwoDGaussianPlugin {
                 Logger.getLogger(TwoDGaussianPlugin.class.getName()).log(Level.SEVERE, null, ex);
             }
         }
-        
     };
 
     MouseListener impcanMouseListener = new MouseListener() { //declare imp canvas 
@@ -568,13 +596,8 @@ public class TwoDGaussianPlugin {
             //recalculate this into coordinates in the image
             int initposx = (int) Math.floor(imp_can.offScreenX(px));
             int initposy = (int) Math.floor(imp_can.offScreenY(py));
-            IJ.log("initposx" + Integer.toString(initposx));
-            IJ.log("initposy" + Integer.toString(initposy));
 
             SPT.initializeroi(initposx, initposy);
-
-            //roi2 = new Roi(initposx-newStart_[1],initposy-newStart_[2],ROI_width,ROI_height);
-            //SPT.imp_.setRoi(roi2);
         }
 
         @Override
